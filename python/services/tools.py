@@ -1,5 +1,6 @@
 import logging
 
+
 def static_vars(**kwargs):
     def decorate(func):
         for k in kwargs:
@@ -13,5 +14,5 @@ def simplify_sql_query(query):
     return " ".join(query.split())
 
 
-def set_basic_logging_config():
-    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG)
+def set_basic_logging_config(level=logging.DEBUG):
+    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=level)

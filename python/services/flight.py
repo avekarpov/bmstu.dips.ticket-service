@@ -6,6 +6,8 @@ import tools
 from flask import request
 from flask import make_response
 
+import argparse
+
 import psycopg2
 
 
@@ -83,9 +85,7 @@ class FlightService(ServiceBase):
         method = request.method
 
         if method == 'GET':
-            args = request.args
-
-            page = self._db_connector.get_flights(int(args['page']), int(args['size']))
+            page = self._db_connector.get_flights(int(request.args['page']), int(request.args['size']))
 
             return make_response(
                 {
@@ -109,10 +109,35 @@ class FlightService(ServiceBase):
 if __name__ == '__main__':
     tools.set_basic_logging_config()
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--host', type=str, default='localhost')
+    parser.add_argument('--port', type=int, default=8060)
+    parser.add_argument('--db-host', type=str, default='localhost')
+    parser.add_argument('--db-port', type=int, default=5432)
+    parser.add_argument('--db', type=str, default='flights')
+    parser.add_argument('--db-user', type=str, required=True)
+    parser.add_argument('--db-password', type=str, required=True)
+    parser.add_argument('--db-sslmode', type=str, default='disable')
+    parser.add_argument('--debug', action='store_true')
+
+    args = parser.parse_args()
+
+    if args.debug:
+        tools.set_basic_logging_config(level=logging.DEBUG)
+    else:
+        tools.set_basic_logging_config(level=logging.INFO)
+
     service = FlightService(
-        'localhost',
-        8060,
-        FlightDbConnector('localhost', 5432, 'flights', 'program', 'program_password')
+        args.host,
+        args.port,
+        FlightDbConnector(
+            args.db_host,
+            args.db_port,
+            args.db,
+            args.db_user,
+            args.db_password,
+            args.db_sslmode
+        )
     )
 
-    service.run()
+    service.run(args.debug)
