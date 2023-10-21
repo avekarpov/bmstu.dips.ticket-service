@@ -1,6 +1,8 @@
 import logging
 
 from base import ServiceBase
+from base import DbConnectorBase
+
 import tools
 
 from flask import request
@@ -8,28 +10,12 @@ from flask import make_response
 
 import argparse
 
-import psycopg2
 
-
-class FlightDbConnector:
+class FlightDbConnector(DbConnectorBase):
     def __init__(self, host, port, database, user, password, sslmode='disable'):
-        self._logger = logging.getLogger('FlightDbConnector')
+        super().__init__('FlightDbConnector', host, port, database, user, password, sslmode)
 
-        self._connection = self.create_connection(host, port, database, user, password, sslmode)
-
-    def create_connection(self, host, port, database, user, password, sslmode):
-        self._logger.info(f'Create connection on http://{host}:{port} to database: {database} under user: {user}')
-
-        return psycopg2.connect(
-            host=host,
-            port=port,
-            database=database,
-            user=user,
-            password=password,
-            sslmode=sslmode
-        )
-
-    def get_flights(self, page_numer, page_size):
+    def get_flights(self, page_number, page_size):
         query = tools.simplify_sql_query(
             f'SELECT id, number, datetime, price, from_airport, to_airport FROM('
             f'    SELECT '
@@ -44,27 +30,62 @@ class FlightDbConnector:
             f'    JOIN airport as from_airport ON flight.from_airport_id = from_airport.id '
             f'    JOIN airport as to_airport ON flight.to_airport_id = to_airport.id'
             f') as flight_with_row '
-            f'WHERE {(page_numer - 1) * page_size + 1} <= row AND row < {page_numer * page_size + 1}'
+            f'WHERE {(page_number - 1) * page_size + 1} <= row AND row < {page_number * page_size + 1}'
         )
 
         self._logger.debug(f'Execute query: {query}')
         cursor = self._connection.cursor()
         cursor.execute(query)
 
-        page = cursor.fetchall()
+        table = cursor.fetchall()
         cursor.close()
 
+        return [
+            {
+                'id': row[0],
+                'number': row[1],
+                'datetime': row[2],
+                'price': row[3],
+                'from_airport': row[4],
+                'to_airport': row[5]
+            }
+            for row in table
+        ]
+
+    def get_flight_by_number(self, number):
+        query = tools.simplify_sql_query(
+            f'SELECT id, number, datetime, price, from_airport, to_airport FROM('
+            f'    SELECT '
+            f'        flight.id, '
+            f'        number, '
+            f'        datetime, '
+            f'        price, '
+            f'        CONCAT(from_airport.city, \' \' , from_airport.name) as from_airport, '
+            f'        CONCAT(to_airport.city, \' \', to_airport.name) as to_airport '
+            f'    FROM flight '
+            f'    JOIN airport as from_airport ON flight.from_airport_id = from_airport.id '
+            f'    JOIN airport as to_airport ON flight.to_airport_id = to_airport.id'
+            f') as flight_with_airport '
+            f'WHERE number = \'{number}\''
+        )
+
+        self._logger.debug(f'Execute query: {query}')
+        cursor = self._connection.cursor()
+        cursor.execute(query)
+
+        row = cursor.fetchone()
+        cursor.close()
+
+        if row is None:
+            return None
+
         return {
-            'number': page_numer,
-            'size': page_size,
-            'totalElements': len(page),
-            'items': [{
-                'flightNumber': i[1],
-                'fromAirport': i[4],
-                'toAirport': i[5],
-                'date': i[2],
-                'price': i[3]
-            } for i in page]
+            'id': row[0],
+            'number': row[1],
+            'datetime': row[2],
+            'price': row[3],
+            'from_airport': row[4],
+            'to_airport': row[5]
         }
 
 
@@ -85,14 +106,61 @@ class FlightService(ServiceBase):
         method = request.method
 
         if method == 'GET':
-            page = self._db_connector.get_flights(int(request.args['page']), int(request.args['size']))
+            page_number, em, ec = tools.get_required_arg('page')
+            if page_number is None:
+                return make_response(em, ec)
+            page_number = int(page_number)
+
+            page_size, em, ec = tools.get_required_arg('size')
+            if page_size is None:
+                return make_response(em, ec)
+            page_size = int(page_size)
+
+            table = self._db_connector.get_flights(page_number, page_size)
 
             return make_response(
                 {
-                    'page': page['number'],
-                    'pageSize': page['size'],
-                    'totalElements': len(page['items']),
-                    'items': page['items']
+                    'page': page_number,
+                    'pageSize': page_size,
+                    'totalElements': len(table),
+                    'items': [
+                        {
+                            'flightNumber': row['number'],
+                            'fromAirport': row['from_airport'],
+                            'toAirport': row['to_airport'],
+                            'date': row['datetime'],
+                            'price': row['price']
+                        }
+                        for row in table
+                    ]
+                },
+                200
+            )
+
+        assert False, 'Invalid request method'
+
+    @tools.static_vars(path='/api/v1/flights/<string:number>', methods=['GET'])
+    def _handler_flight_by_number(self, number):
+        self._logger.debug(
+            f'Call handler for path: {self._handler_flight_by_number.path} '
+            f'with request = {request}'
+        )
+
+        method = request.method
+
+        if method == 'GET':
+            flight = self._db_connector.get_flight_by_number(number)
+
+            if flight is None:
+                return make_response({'message': 'non existent flight'}, 404)
+
+            return make_response(
+                {
+                    'flightNumber': flight['number'],
+                    'fromAirport': flight['from_airport'],
+                    'toAirport': flight['to_airport'],
+                    'date': flight['datetime'],
+                    'price': flight['price']
                 },
                 200
             )
@@ -104,6 +172,7 @@ class FlightService(ServiceBase):
 
     def _register_routes(self):
         self._register_route('_handler_flights')
+        self._register_route('_handler_flight_by_number')
 
 
 if __name__ == '__main__':
@@ -120,24 +189,24 @@ if __name__ == '__main__':
     parser.add_argument('--db-sslmode', type=str, default='disable')
     parser.add_argument('--debug', action='store_true')
 
-    args = parser.parse_args()
+    cmd_args = parser.parse_args()
 
-    if args.debug:
+    if cmd_args.debug:
         tools.set_basic_logging_config(level=logging.DEBUG)
     else:
         tools.set_basic_logging_config(level=logging.INFO)
 
     service = FlightService(
-        args.host,
-        args.port,
+        cmd_args.host,
+        cmd_args.port,
         FlightDbConnector(
-            args.db_host,
-            args.db_port,
-            args.db,
-            args.db_user,
-            args.db_password,
-            args.db_sslmode
+            cmd_args.db_host,
+            cmd_args.db_port,
+            cmd_args.db,
+            cmd_args.db_user,
+            cmd_args.db_password,
+            cmd_args.db_sslmode
         )
     )
 
-    service.run(args.debug)
+    service.run(cmd_args.debug)

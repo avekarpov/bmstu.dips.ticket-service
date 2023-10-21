@@ -2,6 +2,29 @@ from flask import Flask
 
 import logging
 
+import psycopg2
+
+
+class DbConnectorBase:
+    def __init__(self, name, host, port, database, user, password, sslmode):
+        self._logger = logging.getLogger(name)
+
+        self._connection = self.create_connection(host, port, database, user, password, sslmode)
+
+    def create_connection(self, host, port, database, user, password, sslmode):
+        self._logger.info(
+            f'Create connection on \'http://{host}:{port}\' to database \'{database}\' under user \'{user}\''
+        )
+
+        return psycopg2.connect(
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            sslmode=sslmode
+        )
+
 
 class ServiceBase:
     def __init__(self, name, host, port, db_connector):
@@ -21,7 +44,7 @@ class ServiceBase:
         self._logger.info(f'Run service on http://{self._host}:{self._port}')
 
         try:
-            self._logger.info(f'Run flask app with: host: {self._host}, port: {self._port}, debug: {debug}')
+            self._logger.info(f'Run flask app: host: {self._host}, port: {self._port}, debug: {debug}')
 
             self._flask_app.run(self._host, self._port, debug=debug)
 
