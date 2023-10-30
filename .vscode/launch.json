@@ -1,0 +1,39 @@
+{
+    "version": "0.2.0",
+
+    "configurations":
+    [
+        {
+            "name": "flight-service",
+            "type": "python",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/python/services",
+            "program": "flight.py",
+            "console": "integratedTerminal",
+            "args":
+            [
+                "--db-user", "program",
+                "--db-password", "program_password",
+                "--db", "flights",
+                "--debug"
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "ticket-service",
+            "type": "python",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/python/services",
+            "program": "ticket.py",
+            "console": "integratedTerminal",
+            "args":
+            [
+                "--db-user", "program",
+                "--db-password", "program_password",
+                "--db", "tickets",
+                "--debug"
+            ],
+            "justMyCode": false
+        }
+    ]
+}
