@@ -16,6 +16,8 @@ import requests
 
 import uuid
 
+import json
+
 
 class TicketDbConnector(DbConnectorBase):
     def __init__(self, host, port, database, user, password, sslmode='disable'):
@@ -80,13 +82,24 @@ class TicketDbConnector(DbConnectorBase):
         cursor.execute(query)
 
         cursor.close()
+        self._connection.commit()
 
 
 class TicketService(ServiceBase):
-    def __init__(self, host, port, db_connector, flight_service_host, flight_service_port):
+    def __init__(
+        self, 
+        host, 
+        port, 
+        db_connector, 
+        flight_service_host, 
+        flight_service_port,
+        bonus_service_host,
+        bonus_service_port    
+    ):
         super().__init__('TicketService', host, port, db_connector)
 
         self._flight_service_url = f'http://{flight_service_host}:{flight_service_port}'
+        self._bonus_service_url = f'http://{bonus_service_host}:{bonus_service_port}'
 
     # API requests handlers
     ####################################################################################################################
@@ -124,7 +137,7 @@ class TicketService(ServiceBase):
 
         if method == 'POST':
             if request.headers['Content-Type'] != 'application/json':
-                return make_response({'message': 'invalid header \'Content-Type\''})
+                return make_response({'message': 'invalid header \'Content-Type\''}, 400)
 
             body = request.json
 
@@ -158,9 +171,38 @@ class TicketService(ServiceBase):
 
             uid = uuid.uuid4()
 
-            # TODO: request to bonus service
+            username = request.headers['X-User-Name']
 
-            self._db_connector.add_user_ticket(request.headers['X-User-Name'], uid, flight_number, price, 'PAID')
+            privilege = requests.request('GET', f'{self._bonus_service_url}/api/v1/privilege', headers={'X-User-Name': username}).json()
+            bonus_balance = privilege['balance']
+            
+            if paid_from_balance:
+                paid_by_bonuses = min(price, bonus_balance)
+                balance_diff = paid_by_bonuses
+            else:
+                paid_by_bonuses = 0
+                balance_diff = int(price / 10)
+                
+            paid_by_money = price - bonus_balance
+
+            self._db_connector.add_user_ticket(username, uid, flight_number, price, 'PAID')
+
+            d = json.dumps({
+                'paidFromBalance': paid_from_balance,
+                'datetime': flight['date'], # TODO: change
+                'ticketUid': str(uid),
+                'balanceDiff': balance_diff
+            })
+
+            result = requests.request(
+                'POST',
+                f'{self._bonus_service_url}/api/v1/privilege',
+                headers={
+                    'Content-Type': 'application/json',
+                    'X-User-Name': username
+                },
+                data=d
+            )
 
             return make_response(
                 {
@@ -170,10 +212,13 @@ class TicketService(ServiceBase):
                     'toAirport': flight['toAirport'],
                     'data': flight['date'],
                     'price': price,
-                    'paidByMoney': None,
-                    'paidByBonuses': None,
+                    'paidByMoney': paid_by_money,
+                    'paidByBonuses': paid_by_bonuses,
                     'status': 'PAID',
-                    'privilege': None
+                    'privilege': {
+                        'balanse': bonus_balance,
+                        'status': privilege['status']
+                    }
                 },
                 200
             )
@@ -229,6 +274,8 @@ if __name__ == '__main__':
     parser.add_argument('--port', type=int, default=8070)
     parser.add_argument('--flight-service-host', type=str, default='localhost')
     parser.add_argument('--flight-service-port', type=int, default=8060)
+    parser.add_argument('--bonus-service-host', type=str, default='localhost')
+    parser.add_argument('--bonus-service-port', type=int, default=8050)
     parser.add_argument('--db-host', type=str, default='localhost')
     parser.add_argument('--db-port', type=int, default=5432)
     parser.add_argument('--db', type=str, default='tickets')
@@ -256,7 +303,9 @@ if __name__ == '__main__':
             cmd_args.db_sslmode
         ),
         cmd_args.flight_service_host,
-        cmd_args.flight_service_port
+        cmd_args.flight_service_port,
+        cmd_args.bonus_service_host,
+        cmd_args.bonus_service_port
     )
 
     service.run(cmd_args.debug)

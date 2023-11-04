@@ -4,7 +4,7 @@
     "configurations":
     [
         {
-            "name": "flight-service",
+            "name": "flight service",
             "type": "python",
             "request": "launch",
             "cwd": "${workspaceFolder}/python/services",
@@ -20,7 +20,7 @@
             "justMyCode": false
         },
         {
-            "name": "ticket-service",
+            "name": "ticket service",
             "type": "python",
             "request": "launch",
             "cwd": "${workspaceFolder}/python/services",
@@ -34,6 +34,30 @@
                 "--debug"
             ],
             "justMyCode": false
+        },
+        {
+            "name": "bonus service",
+            "type": "python",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/python/services",
+            "program": "bonus.py",
+            "console": "integratedTerminal",
+            "args":
+            [
+                "--db-user", "program",
+                "--db-password", "program_password",
+                "--db", "bonus",
+                "--debug"
+            ],
+            "justMyCode": false
+        },
+    ],
+    "compounds":
+    [
+        {
+            "name": "run service",
+            "configurations": ["flight service", "ticket service", "bonus service"],
+            "stopAll": true
         }
     ]
 }

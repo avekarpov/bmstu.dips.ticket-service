@@ -51,11 +51,11 @@ class ServiceBase:
             self._logger.info(f'End flask app run')
 
         except Exception as exception:
-            self._logger.error(f'Failed while run flask app was running, error: {exception}')
+            self._logger.error(f'Failed while run flask app, error: {exception}')
 
             raise
         except:
-            self._logger.error(f'Failed while run flask app was running, with unknown error')
+            self._logger.error(f'Failed while run flask app, with unknown error')
 
             raise
             
