@@ -1,20 +1,16 @@
 version: "3"
 services:
-  postgres:
-    image: library/postgres:13
-    container_name: postgres
-    restart: on-failure
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: "postgres"
-      POSTGRES_DB: postgres
-    volumes:
-      - db-data:/var/lib/postgresql/data
-      - ./postgres/:/docker-entrypoint-initdb.d/
-    ports:
-      - "5432:5432"
-
-# TODO добавить сервисы
+    postgres:
+        image: postgres:13
+        container_name: postgres
+        restart: always
+        environment:
+            POSTGRES_USER: program
+            POSTGRES_PASSWORD: program_password
+        volumes:
+            - postgresql:/var/lib/postgresql
+        ports:
+            - 5432:5432
 
 volumes:
-  db-data:
+    postgresql:
