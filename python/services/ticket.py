@@ -5,8 +5,6 @@ import psycopg2
 from base import ServiceBase
 from base import DbConnectorBase
 
-import tools
-
 from flask import request
 from flask import make_response
 
@@ -15,9 +13,14 @@ import argparse
 import requests
 
 import uuid
-
 import json
+from datetime import datetime
 
+import tools
+import errors
+import rules
+from getters import UserValue
+from getters import ServerValue
 
 class TicketDbConnector(DbConnectorBase):
     def __init__(self, host, port, database, user, password, sslmode='disable'):
@@ -73,7 +76,7 @@ class TicketDbConnector(DbConnectorBase):
 
     def add_user_ticket(self, user, uid, flight_number, price, status):
         query = tools.simplify_sql_query(
-            f'INSERT INTO ticket(username, uid, flight_number, price, status)'
+            f'INSERT INTO ticket(username, uid, flight_number, price, status) '
             f'VALUES (\'{user}\', \'{uid}\', \'{flight_number}\', {price}, \'{status}\')'
         )
 
@@ -104,25 +107,22 @@ class TicketService(ServiceBase):
     # API requests handlers
     ####################################################################################################################
 
-    @tools.static_vars(path='/api/v1/tickets', methods=['GET', 'POST'])
-    def _handler_tickets(self):
-        self._logger.debug(
-            f'Call handler for path: {self._handler_tickets.path} '
-            f'with request = {request}'
-        )
-
+    @ServiceBase.route(path='/api/v1/tickets', methods=['GET', 'POST'])
+    def _api_v1_tickets(self):
         method = request.method
 
         if method == 'GET':
-            table = self._db_connector.get_user_tickets(request.headers['X-User-Name'])
+            username = UserValue.get_from(request.headers, 'X-User-Name').value
 
-            url_base = f'{self._flight_service_url}/api/v1/flights'
-
-            response = []
+            table = self._db_connector.get_user_tickets(username)
+            
+            meesage = []
             for row in table:
-                flight = requests.request('GET', f'{url_base}/{row["flight_number"]}').json()
+                flight = requests.request('GET', f'{self._flight_service_url}/api/v1/flights/{row["flight_number"]}').json()
+                if 'error' in flight.keys():
+                    raise errors.ServerError(flight, 500)
 
-                response.append(
+                meesage.append(
                     {
                         'ticketUid': row['uid'],
                         'fromAirport': flight['fromAirport'],
@@ -133,49 +133,34 @@ class TicketService(ServiceBase):
                     }
                 )
 
-            return make_response(response, 200)
+            return make_response(meesage, 200)
 
         if method == 'POST':
-            if request.headers['Content-Type'] != 'application/json':
-                return make_response({'message': 'invalid header \'Content-Type\''}, 400)
+            username = UserValue.get_from(request.headers, 'X-User-Name').value
 
+            UserValue.get_from(request.headers, 'Content-Type').rule(rules.json_content)
             body = request.json
 
-            errors = []
-
-            flight_number = tools.get_required_arg_from(body, 'flightNumber')[0]
-            if flight_number is None:
-                errors.append({'flightNumber': 'expected flight number'})
-            elif not tools.is_valid(flight_number, str):
-                errors.append({'flightNumber': 'invalid flight number'})
-
-            price = tools.get_required_arg_from(body, 'price')[0]
-            if price is None:
-                errors.append({'price': 'expected price'})
-            elif not tools.is_valid(price, int) or price < 0:
-                errors.append({'price': 'invalid price'})
-
-            paid_from_balance = tools.get_required_arg_from(body, 'paidFromBalance')[0]
-            if paid_from_balance is None:
-                errors.append({'paidFromBalance': 'expected paid from balance'})
-            elif not tools.is_valid(paid_from_balance, bool):
-                errors.append({'paidFromBalance': 'invalid paid from balance'})
-
-            if len(errors) != 0:
-                return make_response({'message': 'invalid request', 'errors': errors}, 400)
+            with UserValue.ErrorChain() as error_chain:
+                flight_number = UserValue.get_from(body, 'flightNumber', error_chain).expected(str).value
+                price = UserValue.get_from(body, 'price', error_chain).expected(int).rule(rules.grater_zero).value
+                paid_from_balance = UserValue.get_from(body, 'paidFromBalance', error_chain).expected(bool).value
 
             flight = requests.request('GET', f'{self._flight_service_url}/api/v1/flights/{flight_number}').json()
+            if 'error' in flight.keys():
+                raise errors.ServerError(flight, 500)
 
-            if 'message' in flight.keys():
-                return make_response(flight, 400)
-
-            uid = uuid.uuid4()
-
-            username = request.headers['X-User-Name']
+            price = ServerValue.get_from(flight, 'price').expected(int).rule(rules.grater_zero).value
 
             privilege = requests.request('GET', f'{self._bonus_service_url}/api/v1/privilege', headers={'X-User-Name': username}).json()
-            bonus_balance = privilege['balance']
+            if 'error' in privilege.keys():
+                raise errors.ServerError(privilege, 500)
+
+            bonus_balance = ServerValue.get_from(privilege, 'balance').expected(int).rule(rules.greate_equal_zero).value
             
+            if bonus_balance == 0:
+                paid_from_balance = False
+
             if paid_from_balance:
                 paid_by_bonuses = min(price, bonus_balance)
                 balance_diff = paid_by_bonuses
@@ -185,24 +170,26 @@ class TicketService(ServiceBase):
                 
             paid_by_money = price - bonus_balance
 
+            uid = str(uuid.uuid4())
             self._db_connector.add_user_ticket(username, uid, flight_number, price, 'PAID')
 
-            d = json.dumps({
-                'paidFromBalance': paid_from_balance,
-                'datetime': flight['date'], # TODO: change
-                'ticketUid': str(uid),
-                'balanceDiff': balance_diff
-            })
-
-            result = requests.request(
+            privilege = requests.request(
                 'POST',
                 f'{self._bonus_service_url}/api/v1/privilege',
                 headers={
                     'Content-Type': 'application/json',
                     'X-User-Name': username
                 },
-                data=d
-            )
+                data=json.dumps({
+                    'paidFromBalance': paid_from_balance,
+                    'datetime': datetime.today().strftime('%Y-%m-%d %H:%M:%S'),
+                    'ticketUid': uid,
+                    'balanceDiff': balance_diff
+                })
+            ).json()
+
+            if 'error' in privilege.keys():
+                return make_response(privilege, 500)
 
             return make_response(
                 {
@@ -216,7 +203,7 @@ class TicketService(ServiceBase):
                     'paidByBonuses': paid_by_bonuses,
                     'status': 'PAID',
                     'privilege': {
-                        'balanse': bonus_balance,
+                        'balance': privilege['balance'],
                         'status': privilege['status']
                     }
                 },
@@ -225,20 +212,15 @@ class TicketService(ServiceBase):
 
         assert False, 'Invalid request method'
 
-    @tools.static_vars(path='/api/v1/tickets/<string:uid>', methods=['GET'])
-    def _handler_ticket_by_uid(self, uid):
-        self._logger.debug(
-            f'Call handler for path: {self._handler_ticket_by_uid.path} '
-            f'with request = {request}'
-        )
-
+    @ServiceBase.route(path='/api/v1/tickets/<string:uid>', methods=['GET'])
+    def _api_v1_tickets_aUid(self, uid):
         method = request.method
 
         if method == 'GET':
             ticket = self._db_connector.get_ticket_by_uid(uid)
 
             if ticket is None:
-                return make_response({'message': 'non existent ticket'}, 404)
+                raise errors.UserError({'message': 'non existent ticket'}, 404)
 
             url_base = f'{self._flight_service_url}/api/v1/flights'
 
@@ -262,8 +244,8 @@ class TicketService(ServiceBase):
     ####################################################################################################################
 
     def _register_routes(self):
-        self._register_route('_handler_tickets')
-        self._register_route('_handler_ticket_by_uid')
+        self._register_route('_api_v1_tickets')
+        self._register_route('_api_v1_tickets_aUid')
 
 
 if __name__ == '__main__':

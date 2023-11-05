@@ -17,7 +17,8 @@
                 "--db", "flights",
                 "--debug"
             ],
-            "justMyCode": false
+            "justMyCode": false,
+            "consoleTitle": "Flight service"
         },
         {
             "name": "ticket service",
@@ -33,7 +34,8 @@
                 "--db", "tickets",
                 "--debug"
             ],
-            "justMyCode": false
+            "justMyCode": false,
+            "consoleTitle": "Ticket service"
         },
         {
             "name": "bonus service",
@@ -49,7 +51,8 @@
                 "--db", "bonus",
                 "--debug"
             ],
-            "justMyCode": false
+            "justMyCode": false,
+            "consoleTitle": "Bonus service"
         },
     ],
     "compounds":

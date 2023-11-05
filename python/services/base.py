@@ -1,8 +1,12 @@
 from flask import Flask
+from flask import request
+from flask import make_response
 
 import logging
 
 import psycopg2
+
+import errors
 
 
 class DbConnectorBase:
@@ -75,3 +79,24 @@ class ServiceBase:
             view_func=handler,
             methods=handler.methods
         )
+
+    @staticmethod
+    def route(path, methods):
+        def decorate(func):
+            def wrapper(self, *args, **kwargs):
+                self._logger.debug(f'Call handler for path: {path}')
+
+                try:
+                    return func(self=self, *args, **kwargs)
+                
+                except errors.UserError as error:
+                    error.message.update({'error': 'bad request'})
+                    return make_response(error.message, error.code)
+
+            setattr(wrapper, 'path', path)
+            setattr(wrapper, 'methods', methods)
+
+            wrapper.__name__ = func.__name__
+            return wrapper
+
+        return decorate

@@ -4,6 +4,9 @@ from base import ServiceBase
 from base import DbConnectorBase
 
 import tools
+import errors
+import rules
+from getters import UserValue
 
 from flask import request
 from flask import make_response
@@ -96,25 +99,15 @@ class FlightService(ServiceBase):
     # API requests handlers
     ####################################################################################################################
 
-    @tools.static_vars(path='/api/v1/flights', methods=['GET'])
-    def _handler_flights(self):
-        self._logger.debug(
-            f'Call handler for path: {self._handler_flights.path} '
-            f'with request = {request}'
-        )
-
+    @ServiceBase.route('/api/v1/flights', ['GET'])
+    def _api_v1_flight(self):
         method = request.method
 
         if method == 'GET':
-            page_number, em, ec = tools.get_required_arg('page')
-            if page_number is None:
-                return make_response(em, ec)
-            page_number = int(page_number)
 
-            page_size, em, ec = tools.get_required_arg('size')
-            if page_size is None:
-                return make_response(em, ec)
-            page_size = int(page_size)
+            with UserValue.ErrorChain() as error_chain:
+                page_number = UserValue.get_from(request.args, 'page', error_chain).cast_to_int().rule(rules.grater_zero).value
+                page_size = UserValue.get_from(request.args, 'size', error_chain).cast_to_int().rule(rules.grater_zero).value
 
             table = self._db_connector.get_flights(page_number, page_size)
 
@@ -139,20 +132,15 @@ class FlightService(ServiceBase):
 
         assert False, 'Invalid request method'
 
-    @tools.static_vars(path='/api/v1/flights/<string:number>', methods=['GET'])
-    def _handler_flight_by_number(self, number):
-        self._logger.debug(
-            f'Call handler for path: {self._handler_flight_by_number.path} '
-            f'with request = {request}'
-        )
-
+    @ServiceBase.route('/api/v1/flights/<string:number>', ['GET'])
+    def _api_v1_flight_aNumber(self, number):
         method = request.method
 
         if method == 'GET':
             flight = self._db_connector.get_flight_by_number(number)
 
             if flight is None:
-                return make_response({'message': 'non existent flight'}, 404)
+                raise errors.UserError({'message': 'non existent flight'}, 404)
 
             return make_response(
                 {
@@ -171,8 +159,8 @@ class FlightService(ServiceBase):
     ####################################################################################################################
 
     def _register_routes(self):
-        self._register_route('_handler_flights')
-        self._register_route('_handler_flight_by_number')
+        self._register_route('_api_v1_flight')
+        self._register_route('_api_v1_flight_aNumber')
 
 
 if __name__ == '__main__':

@@ -4,12 +4,16 @@ from base import ServiceBase
 from base import DbConnectorBase
 
 import tools
+import rules
+import errors
 
 from flask import request
 from flask import make_response
 
 import argparse
 
+from getters import UserValue
+from getters import ServerValue
 
 class BonusDbConnector(DbConnectorBase):
     def __init__(self, host, port, database, user, password, sslmode='disable'):
@@ -61,12 +65,12 @@ class BonusDbConnector(DbConnectorBase):
             new_balance = user_privilege['balance'] + balance_diff
 
         query = tools.simplify_sql_query(
-            f'START TRANSACTION;'
+            f'START TRANSACTION;\n'
 
-            f'UPDATE privilege SET balance = {new_balance} WHERE username = \'{user}\';'
+            f'UPDATE privilege SET balance = {new_balance} WHERE username = \'{user}\';\n'
 
             f'INSERT INTO privilege_history(privilege_id, ticket_uid, datetime, balance_diff, operation_type) '
-            f'VALUES({privilege_id}, \'{ticket_uid}\', \'{datetime}\', {balance_diff}, \'{operation_type}\');'
+            f'VALUES({privilege_id}, \'{ticket_uid}\', \'{datetime}\', {balance_diff}, \'{operation_type}\');\n'
 
             f'COMMIT TRANSACTION;'
         )
@@ -113,17 +117,12 @@ class BonusService(ServiceBase):
     # API requests handlers
     ####################################################################################################################
 
-    @tools.static_vars(path='/api/v1/privilege', methods=['GET', 'POST'])
-    def _handler_privilge(self):
-        self._logger.debug(
-            f'Call handler for path: {self._handler_privilge.path} '
-            f'with request = {request}'
-        )
-
+    @ServiceBase.route(path='/api/v1/privilege', methods=['GET', 'POST'])
+    def _api_v1_privilege(self):
         method = request.method
 
         if method == 'GET':
-            username = request.headers['X-User-Name']
+            username = UserValue.get_from(request.headers, 'X-User-Name').value
 
             user_privilege = self._db_connector.get_user_privilege(username)
 
@@ -151,25 +150,7 @@ class BonusService(ServiceBase):
             )
         
         if method == 'POST':
-            '''
-            Request:
-                headers:
-                    Content-Type: application/json
-                    X-User-Name: username
-
-                body:
-                    {
-                        "paidFromBalance": true,
-                        "datetime": "2023-10-04 15:00:00",
-                        "ticketUid": "08d83d92-485c-4dd9-b8e6-2e0ec83d7f08",
-                        "balanceDiff": 100
-                    }
-            '''
-
-            if request.headers['Content-Type'] != 'application/json':
-                return make_response({'message': 'invalid header \'Content-Type\''}, 400)
-
-            username = request.headers['X-User-Name']
+            username = UserValue.get_from(request.headers, 'X-User-Name').value
 
             user_privilege = self._db_connector.get_user_privilege(username)
 
@@ -177,37 +158,14 @@ class BonusService(ServiceBase):
                 self._db_connector.add_user_privilege(username)
                 user_privilege = self._db_connector.get_user_privilege(username)
 
+            UserValue.get_from(request.headers, 'Content-Type').rule(rules.json_content)
             body = request.json
 
-            errors = []
-
-            paid_from_balance = tools.get_required_arg_from(body, 'paidFromBalance')[0]
-            if paid_from_balance is None:
-                errors.append({'paidFromBalance': 'expected paidFromBalance'})
-            elif not tools.is_valid(paid_from_balance, bool):
-                errors.append({'paidFromBalance': 'invalid paidFromBalance'})
-
-            datetime = tools.get_required_arg_from(body, 'datetime')[0]
-            if datetime is None:
-                errors.append({'paidFromBalance': 'expected paidFromBalance'})
-            elif not tools.is_valid(datetime, str):
-                errors.append({'paidFromBalance': 'invalid paidFromBalance'})
-            # TODO: check is valid datetime
-
-            ticket_uid = tools.get_required_arg_from(body, 'ticketUid')[0]
-            if ticket_uid is None:
-                errors.append({'paidFromBalance': 'expected ticketUid'})
-            elif not tools.is_valid(ticket_uid, str):
-                errors.append({'paidFromBalance': 'invalid ticketUid'})
-
-            balance_diff = tools.get_required_arg_from(body, 'balanceDiff')[0]
-            if balance_diff is None:
-                errors.append({'paidFromBalance': 'expected balanceDiff'})
-            elif not tools.is_valid(balance_diff, int):
-                errors.append({'paidFromBalance': 'invalid balanceDiff'})
-
-            if len(errors) != 0:
-                return make_response({'message': 'invalid request', 'errors': errors}, 400)
+            with UserValue.ErrorChain() as error_chain:
+                paid_from_balance = UserValue.get_from(body, 'paidFromBalance', error_chain).expected(bool).value
+                datetime = UserValue.get_from(body, 'datetime', error_chain).expected(str).value
+                ticket_uid = UserValue.get_from(body, 'ticketUid', error_chain).expected(str).value
+                balance_diff = UserValue.get_from(body, 'balanceDiff', error_chain).expected(int).rule(rules.greate_equal_zero).value
             
             if not paid_from_balance:
                 operation_type = 'FILL_IN_BALANCE'
@@ -215,8 +173,14 @@ class BonusService(ServiceBase):
                 operation_type = 'DEBIT_THE_ACCOUNT'
 
             self._db_connector.update_user_balance(username, ticket_uid, datetime, balance_diff, operation_type)
+            user_privilege = self._db_connector.get_user_privilege(username)
 
-            return make_response()
+            return make_response(
+                {
+                    'status': user_privilege['status'],
+                    'balance': user_privilege['balance'],
+                }
+            )
             
 
         assert False, 'Invalid request method'
@@ -225,7 +189,7 @@ class BonusService(ServiceBase):
     ####################################################################################################################
 
     def _register_routes(self):
-        self._register_route('_handler_privilge')
+        self._register_route('_api_v1_privilege')
 
 if __name__ == '__main__':
     tools.set_basic_logging_config()
