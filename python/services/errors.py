@@ -24,9 +24,6 @@ class ErrorChain:
         return self
 
     def add_error(self, error):
-        if type(error) is not self._error_type:
-            raise ServerError('Chain expect another type')
-
         self._chain.append(error)
 
     def __exit__(self, exception_type, exception_value, traceback):
