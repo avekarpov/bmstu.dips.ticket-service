@@ -109,6 +109,34 @@ class BonusDbConnector(DbConnectorBase):
             }
             for row in table
         ]
+    
+    def get_privilege_history_by_ticket(self, ticket_uid):
+        query = tools.simplify_sql_query(
+            f'SELECT id, privilege_id, ticket_uid, datetime, balance_diff, operation_type FROM privilege_history '
+            f'WHERE ticket_uid = \'{ticket_uid}\''
+        )
+
+        self._logger.debug(f'Execute query: {query}')
+        cursor = self._connection.cursor()
+        cursor.execute(query)
+
+        table = cursor.fetchall()
+        cursor.close()
+
+        if table is None:
+            return None
+        
+        return [
+            {
+                'id': row[0],
+                'privilege_id': row[1],
+                'ticket_uid': row[2],
+                'datetime': row[3],
+                'balance_diff': row[4],
+                'operation_type': row[5]
+            }
+            for row in table
+        ]
 
 class BonusService(ServiceBase):
     def __init__(self, host, port, db_connector):
@@ -117,7 +145,7 @@ class BonusService(ServiceBase):
     # API requests handlers
     ####################################################################################################################
 
-    @ServiceBase.route(path='/api/v1/privilege', methods=['GET', 'POST'])
+    @ServiceBase.route(path='/api/v1/privilege', methods=['GET'])
     def _api_v1_privilege(self):
         method = request.method
 
@@ -147,8 +175,14 @@ class BonusService(ServiceBase):
                     ]
                 },
                 200
-            )
-        
+            )            
+
+        assert False, 'Invalid request method'
+
+    @ServiceBase.route(path='/api/v1/privilege/<string:ticket_uid>', methods=['POST', 'DELETE'])
+    def _api_v1_privilege_aUid(self, ticket_uid):
+        method = request.method
+
         if method == 'POST':
             username = UserValue.get_from(request.headers, 'X-User-Name').value
 
@@ -164,7 +198,6 @@ class BonusService(ServiceBase):
             with UserValue.ErrorChain() as error_chain:
                 paid_from_balance = UserValue.get_from(body, 'paidFromBalance', error_chain).expected(bool).value
                 datetime = UserValue.get_from(body, 'datetime', error_chain).expected(str).value
-                ticket_uid = UserValue.get_from(body, 'ticketUid', error_chain).expected(str).value
                 balance_diff = UserValue.get_from(body, 'balanceDiff', error_chain).expected(int).rule(rules.greate_equal_zero).value
             
             if not paid_from_balance:
@@ -181,15 +214,40 @@ class BonusService(ServiceBase):
                     'balance': user_privilege['balance'],
                 }
             )
-            
+        
+        if method == 'DELETE':
+            username = UserValue.get_from(request.headers, 'X-User-Name').value
 
+            user_privilege = self._db_connector.get_user_privilege(username)
+
+            if user_privilege is None:
+                raise errors.UserError({'message': 'non existed user'})
+
+            privilege_history = self._db_connector.get_privilege_history_by_ticket(ticket_uid)
+
+            assert len(privilege_history) == 1
+            privilege_history = privilege_history[0]
+
+            datetime = ServiceBase.get_current_datetime()
+
+            if privilege_history['operation_type'] == 'FILL_IN_BALANCE':
+                balance_diff = min(user_privilege['balance'], privilege_history['balance_diff'])
+                self._db_connector.update_user_balance(username, ticket_uid, datetime, balance_diff, 'DEBIT_THE_ACCOUNT')
+            else:
+                balance_diff = privilege_history['balance_diff']
+                self._db_connector.update_user_balance(username, ticket_uid, datetime, balance_diff, 'FILL_IN_BALANCE')
+
+
+            return make_response()
+        
         assert False, 'Invalid request method'
-
+        
     # Helpers
     ####################################################################################################################
 
     def _register_routes(self):
         self._register_route('_api_v1_privilege')
+        self._register_route('_api_v1_privilege_aUid')
 
 if __name__ == '__main__':
     tools.set_basic_logging_config()

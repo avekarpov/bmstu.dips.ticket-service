@@ -8,6 +8,7 @@ import psycopg2
 
 import errors
 
+from datetime import datetime
 
 class DbConnectorBase:
     def __init__(self, name, host, port, database, user, password, sslmode):
@@ -79,6 +80,10 @@ class ServiceBase:
             view_func=handler,
             methods=handler.methods
         )
+
+    @staticmethod
+    def get_current_datetime():
+        return datetime.today().strftime('%Y-%m-%d %H:%M:%S')
 
     @staticmethod
     def route(path, methods):

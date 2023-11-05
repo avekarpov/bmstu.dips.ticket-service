@@ -14,7 +14,6 @@ import requests
 
 import uuid
 import json
-from datetime import datetime
 
 import tools
 import errors
@@ -78,6 +77,18 @@ class TicketDbConnector(DbConnectorBase):
         query = tools.simplify_sql_query(
             f'INSERT INTO ticket(username, uid, flight_number, price, status) '
             f'VALUES (\'{user}\', \'{uid}\', \'{flight_number}\', {price}, \'{status}\')'
+        )
+
+        self._logger.debug(f'Execute query: {query}')
+        cursor = self._connection.cursor()
+        cursor.execute(query)
+
+        cursor.close()
+        self._connection.commit()
+
+    def cancel_user_ticket(self, user, uid):
+        query = tools.simplify_sql_query(
+            f'UPDATE ticket SET status = \'CANCELED\' WHERE username = \'{user}\' AND uid = \'{uid}\''
         )
 
         self._logger.debug(f'Execute query: {query}')
@@ -175,14 +186,14 @@ class TicketService(ServiceBase):
 
             privilege = requests.request(
                 'POST',
-                f'{self._bonus_service_url}/api/v1/privilege',
+                f'{self._bonus_service_url}/api/v1/privilege/{uid}',
                 headers={
                     'Content-Type': 'application/json',
                     'X-User-Name': username
                 },
                 data=json.dumps({
                     'paidFromBalance': paid_from_balance,
-                    'datetime': datetime.today().strftime('%Y-%m-%d %H:%M:%S'),
+                    'datetime': ServiceBase.get_current_datetime(),
                     'ticketUid': uid,
                     'balanceDiff': balance_diff
                 })
@@ -212,7 +223,7 @@ class TicketService(ServiceBase):
 
         assert False, 'Invalid request method'
 
-    @ServiceBase.route(path='/api/v1/tickets/<string:uid>', methods=['GET'])
+    @ServiceBase.route(path='/api/v1/tickets/<string:uid>', methods=['GET', 'DELETE'])
     def _api_v1_tickets_aUid(self, uid):
         method = request.method
 
@@ -237,6 +248,30 @@ class TicketService(ServiceBase):
                 },
                 200
             )
+
+        if method == 'DELETE':
+            username = UserValue.get_from(request.headers, 'X-User-Name').value
+
+            ticket = self._db_connector.get_ticket_by_uid(uid)
+
+            if ticket is None:
+                raise errors.UserError({'message': 'non existent ticket'}, 404)
+
+            self._db_connector.cancel_user_ticket(username, uid)
+
+            requests.request(
+                'DELETE',
+                f'{self._bonus_service_url}/api/v1/privilege/{uid}',
+                headers={
+                    'Content-Type': 'application/json',
+                    'X-User-Name': username
+                }
+            )
+
+            #if 'error' in privilege.keys():
+            #    return make_response(privilege, 500)
+
+            return make_response({'message': 'success'}, 204)
 
         assert False, 'Invalid request method'
 
