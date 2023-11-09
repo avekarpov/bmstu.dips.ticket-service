@@ -1,0 +1,15 @@
+server {
+    listen 8080;
+
+    location /api/v1/flights {
+        proxy_pass http://${FLIGHT_HOST}:${FLIGHT_PORT}/api/v1/flights;
+    }
+
+    location /api/v1/tickets {
+        proxy_pass http://${TICKET_HOST}:${TICKET_PORT}/api/v1/tickets;
+    }
+
+    location /api/v1/privilege {
+        proxy_pass http://${BONUS_HOST}:${BONUS_PORT}/api/v1/privilege;
+    }
+}   

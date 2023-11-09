@@ -9,8 +9,79 @@ services:
             POSTGRES_PASSWORD: program_password
         volumes:
             - postgresql:/var/lib/postgresql
+            - ./postgres/:/docker-entrypoint-initdb.d/
         ports:
             - 5432:5432
+        networks:
+            - internal
+
+    gateway:
+        image: nginx:latest
+        container_name: gateway
+        restart: always
+        environment:
+            NGINX_PORT: 8080
+            FLIGHT_HOST: flight_service
+            FLIGHT_PORT: 8060
+            TICKET_HOST: ticket_serivce
+            TICKET_PORT: 8070
+            BONUS_HOST: bonus_service
+            BONUS_PORT: 8050
+        volumes:
+            - ./nginx/templates:/etc/nginx/templates
+        ports:
+            - 8080:8080
+        networks:
+            - internal
+
+    flight:
+        build:
+            dockerfile: Dockerfile.flight
+        container_name: flight_service    
+        restart: always
+        environment:
+            SERVICE_HOST: flight_service
+            SERVICE_PORT: 8060
+            DB_HOST: postgres
+        ports:
+            - 8060:8060
+        networks:
+            - internal
+
+    ticket:
+        build:
+            dockerfile: Dockerfile.ticket
+        container_name: ticket_serivce
+        restart: always
+        environment:
+            SERVICE_HOST: ticket_serivce
+            SERVICE_PORT: 8070
+            FLIGHT_SERVICE_HOST: flight_service
+            FLIGHT_SERVICE_PORT: 8060
+            BONUS_SERVICE_HOST: bonus_service
+            BONUS_SERVICE_PORT: 8050
+            DB_HOST: postgres
+        ports:
+            - 8070:8070
+        networks:
+            - internal
+
+    bonus:
+        build:
+            dockerfile: Dockerfile.bonus
+        container_name: bonus_service
+        restart: always
+        environment:
+            SERVICE_HOST: bonus_service
+            SERVICE_PORT: 8050
+            DB_HOST: postgres
+        ports:
+            - 8050:8050
+        networks:
+            - internal
 
 volumes:
     postgresql:
+
+networks:
+    internal:
