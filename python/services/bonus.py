@@ -257,7 +257,7 @@ if __name__ == '__main__':
     parser.add_argument('--port', type=int, default=8050)
     parser.add_argument('--db-host', type=str, default='localhost')
     parser.add_argument('--db-port', type=int, default=5432)
-    parser.add_argument('--db', type=str, default='flights')
+    parser.add_argument('--db', type=str, default='privileges')
     parser.add_argument('--db-user', type=str, required=True)
     parser.add_argument('--db-password', type=str, required=True)
     parser.add_argument('--db-sslmode', type=str, default='disable')
