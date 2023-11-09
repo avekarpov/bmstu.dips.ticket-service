@@ -1,0 +1,37 @@
+FROM python
+
+ENV SERVICE_HOST localhost
+ENV SERVICE_PORT 8070
+ENV FLIGHT_SERVICE_HOST localhost
+ENV FLIGHT_SERVICE_PORT 8060
+ENV BONUS_SERVICE_HOST localhost
+ENV BONUS_SERVICE_PORT 8050
+ENV DB_HOST localhost
+ENV DB_PORT 5432
+ENV DB tickets
+ENV DB_USER program
+ENV DB_PASSWORD program_password
+
+WORKDIR /app
+
+COPY python/requirements.txt python/requirements.txt
+
+RUN pip install --no-cache-dir -r python/requirements.txt
+
+COPY python/services/ python/
+
+CMD [ \
+    "sh", "-c", \
+    "python python/ticket.py \
+        --host $SERVICE_HOST \
+        --port $SERVICE_PORT \
+        --flight-service-host $FLIGHT_SERVICE_HOST \
+        --flight-service-port $FLIGHT_SERVICE_PORT \
+        --bonus-service-host $BONUS_SERVICE_HOST \
+        --bonus-service-port $BONUS_SERVICE_PORT \
+        --db-host $DB_HOST \
+        --db-port $DB_PORT \
+        --db $DB \
+        --db-user $DB_USER \
+        --db-password $DB_PASSWORD" \
+]
