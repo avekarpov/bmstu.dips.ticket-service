@@ -56,10 +56,10 @@ services:
         environment:
             SERVICE_HOST: ticket_serivce
             SERVICE_PORT: 8070
-            FLIGHT_SERVICE_HOST: flight_service
-            FLIGHT_SERVICE_PORT: 8060
-            BONUS_SERVICE_HOST: bonus_service
-            BONUS_SERVICE_PORT: 8050
+            FLIGHT_SERVICE_HOST: gateway
+            FLIGHT_SERVICE_PORT: 8080
+            BONUS_SERVICE_HOST: gateway
+            BONUS_SERVICE_PORT: 8080
             DB_HOST: postgres
         ports:
             - 8070:8070
