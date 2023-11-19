@@ -1,5 +1,4 @@
 from flask import Flask
-from flask import request
 from flask import make_response
 
 import logging
@@ -43,6 +42,7 @@ class ServiceBase:
 
         self._logger = logging.getLogger(self._service_name)
 
+        self._register_manage_health()
         self._register_routes()
 
     def run(self, debug=False):
@@ -66,6 +66,21 @@ class ServiceBase:
             
 
         self._logger.info(f'End service run')
+
+    def _manage_health(self):
+        return make_response()
+    
+    def _register_manage_health(self):
+        path = '/manage/health'
+        methods = ['GET']
+
+        self._logger.info(f'Register route for \'{path}\' with methods: {methods}')
+
+        self._flask_app.add_url_rule(
+            path,
+            view_func=self._manage_health,
+            methods=methods
+        )
 
     def _register_routes(self):
         pass
