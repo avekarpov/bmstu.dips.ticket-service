@@ -31,14 +31,14 @@ class DbConnectorBase:
 
 
 class ServiceBase:
-    def __init__(self, name, host, port, db_connector):
+    def __init__(self, name, host, port, db_connector=None):
         self._service_name = name
 
         self._host = host
         self._port = port
         self._db_connector = db_connector
 
-        self._flask_app = Flask(self._service_name)
+        self._flask_app = Flask(f'{self._service_name} flask')
 
         self._logger = logging.getLogger(self._service_name)
 
