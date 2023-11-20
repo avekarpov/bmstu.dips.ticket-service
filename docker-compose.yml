@@ -15,6 +15,21 @@ services:
         networks:
             - internal
 
+    rabbitmq:
+        image: rabbitmq:management
+        container_name: rabbitmq
+        restart: always
+        environment:
+            RABBITMQ_DEFAULT_USER: program
+            RABBITMQ_DEFAULT_PASS: program_password
+        ports:
+          - 5672:5672
+          - 15672:15672 # gui port
+        volumes:
+            - rabbitmq:/var/lib/rabbitmq
+        networks:
+            - internal
+
     gateway:
         image: nginx:latest
         container_name: gateway
@@ -76,6 +91,7 @@ services:
 
 volumes:
     postgresql:
+    rabbitmq:
 
 networks:
     internal:
