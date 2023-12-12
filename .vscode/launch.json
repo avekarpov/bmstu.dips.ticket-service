@@ -55,16 +55,15 @@
             "consoleTitle": "Bonus service"
         },
         {
-            "name": "circuit breaker for flight service",
+            "name": "gateway",
             "type": "python",
             "request": "launch",
             "cwd": "${workspaceFolder}/python/services",
-            "program": "circuit_breaker.py",
+            "program": "gateway.py",
             "justMyCode": false,
             "args":
             [
-                "--service-host", "localhost",
-                "--service-port", "8060"
+                "--debug"
             ],
             "consoleTitle": "Circuit breaker"
         }
@@ -73,12 +72,7 @@
     [
         {
             "name": "run service",
-            "configurations": ["flight service", "ticket service", "bonus service"],
-            "stopAll": true
-        },
-        {
-            "name": "run flight service with circuit breaker",
-            "configurations": ["flight service", "circuit breaker for flight service"],
+            "configurations": ["gateway", "flight service", "ticket service", "bonus service"],
             "stopAll": true
         }
     ]

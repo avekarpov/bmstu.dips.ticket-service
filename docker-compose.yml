@@ -15,35 +15,20 @@ services:
         networks:
             - internal
 
-    rabbitmq:
-        image: rabbitmq:management
-        container_name: rabbitmq
-        restart: always
-        environment:
-            RABBITMQ_DEFAULT_USER: program
-            RABBITMQ_DEFAULT_PASS: program_password
-        ports:
-          - 5672:5672
-          - 15672:15672 # gui port
-        volumes:
-            - rabbitmq:/var/lib/rabbitmq
-        networks:
-            - internal
-
     gateway:
-        image: nginx:latest
+        build:
+            dockerfile: Dockerfile.gateway
         container_name: gateway
         restart: always
         environment:
-            NGINX_PORT: 8080
-            FLIGHT_HOST: flight_service
-            FLIGHT_PORT: 8060
-            TICKET_HOST: ticket_serivce
-            TICKET_PORT: 8070
-            BONUS_HOST: bonus_service
-            BONUS_PORT: 8050
-        volumes:
-            - ./nginx/templates:/etc/nginx/templates
+            SERVICE_HOST: gateway
+            SERVICE_PORT: 8080
+            FLIGHT_SERVICE_HOST: flight_service
+            FLIGHT_SERVICE_PORT: 8060
+            TICKET_SERVICE_HOST: ticket_serivce
+            TICKET_SERVICE_PORT: 8070
+            BONUS_SERVICE_HOST: bonus_service
+            BONUS_SERVICE_PORT: 8050
         ports:
             - 8080:8080
         networks:
@@ -91,7 +76,6 @@ services:
 
 volumes:
     postgresql:
-    rabbitmq:
 
 networks:
     internal:
