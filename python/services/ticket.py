@@ -182,7 +182,6 @@ class TicketService(ServiceBase):
             paid_by_money = price - bonus_balance
 
             uid = str(uuid.uuid4())
-            self._db_connector.add_user_ticket(username, uid, flight_number, price, 'PAID')
 
             privilege = requests.request(
                 'POST',
@@ -201,6 +200,8 @@ class TicketService(ServiceBase):
 
             if 'error' in privilege.keys():
                 return make_response(privilege, 500)
+
+            self._db_connector.add_user_ticket(username, uid, flight_number, price, 'PAID')
 
             return make_response(
                 {
@@ -257,9 +258,7 @@ class TicketService(ServiceBase):
             if ticket is None:
                 raise errors.UserError({'message': 'non existent ticket'}, 404)
 
-            self._db_connector.cancel_user_ticket(username, uid)
-
-            requests.request(
+            privilege = requests.request(
                 'DELETE',
                 f'{self._bonus_service_url}/api/v1/privilege/{uid}',
                 headers={
@@ -268,10 +267,13 @@ class TicketService(ServiceBase):
                 }
             )
 
-            #if 'error' in privilege.keys():
-            #    return make_response(privilege, 500)
+            if tools.is_json_content(privilege):
+                if 'error' in privilege.json().keys():
+                    return make_response(privilege, 500)
 
-            return make_response({'message': 'success'}, 204)
+            self._db_connector.cancel_user_ticket(username, uid)
+
+            return make_response('', 204)
 
         assert False, 'Invalid request method'
 

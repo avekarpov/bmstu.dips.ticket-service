@@ -31,7 +31,7 @@ class DbConnectorBase:
 
 
 class ServiceBase:
-    def __init__(self, name, host, port, db_connector=None):
+    def __init__(self, name, host, port, db_connector:DbConnectorBase=None):
         self._service_name = name
 
         self._host = host

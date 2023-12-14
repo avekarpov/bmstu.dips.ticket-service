@@ -48,7 +48,7 @@
             [
                 "--db-user", "program",
                 "--db-password", "program_password",
-                "--db", "bonus",
+                "--db", "privileges",
                 "--debug"
             ],
             "justMyCode": false,
@@ -65,7 +65,7 @@
             [
                 "--debug"
             ],
-            "consoleTitle": "Circuit breaker"
+            "consoleTitle": "Gateway"
         }
     ],
     "compounds":

@@ -1,4 +1,5 @@
 import logging
+from operator import le
 
 from base import ServiceBase
 from base import DbConnectorBase
@@ -224,6 +225,9 @@ class BonusService(ServiceBase):
                 raise errors.UserError({'message': 'non existed user'})
 
             privilege_history = self._db_connector.get_privilege_history_by_ticket(ticket_uid)
+
+            if len(privilege_history) == 2:
+                return make_response() # already deleted
 
             assert len(privilege_history) == 1
             privilege_history = privilege_history[0]

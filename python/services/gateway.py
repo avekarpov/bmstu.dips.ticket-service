@@ -1,3 +1,4 @@
+import json
 import logging
 
 from base import ServiceBase
@@ -82,6 +83,37 @@ class Gateway(ServiceBase):
     ################################################################################################
 
     def _resend(self, url, path, queue, request):
+        response = None
+
+        try:
+            response = self._request(url, path, request)
+
+        except Exception as exception:
+            if request.method == 'DELETE':
+                class RequestBackup:
+                    def __init__(self, path, method, headers, args, data):
+                        self.path = path
+                        self.method = method
+                        self.headers = headers
+                        self.args = args
+                        self.data = data
+            
+                queue.append(RequestBackup(path, request.method, request.headers, request.args, request.data))
+
+                return make_response('', 200)
+
+            return make_response('Internal server error', 500)
+
+        try:
+            for req in queue:
+                self._request(url, req.path, req)
+                queue.remove(req)
+
+        finally:
+            return response
+        
+
+    def _request(self, url, path, request):
         method = request.method
 
         if self._error_level > self._valid_error_level:
@@ -110,38 +142,19 @@ class Gateway(ServiceBase):
             self._logger.debug(f'Get response from service, reset error level from {self._error_level} to 0')
             self._error_level = 0
 
-            if queue is not None:
-                self.retry_requests(queue)
+            if tools.is_json_content(response):
+                return make_response(response.json(), response.status_code)
 
             return make_response(response.text, response.status_code)
 
         except Exception as exception:
             self._logger.error(f'Failed to resend, error: {exception}')
 
-            class RequestBackup:
-                def __init__(self):
-                    pass
-
-            request_backup = RequestBackup()
-            setattr(request_backup, 'url', url)
-            setattr(request_backup, 'path', path)
-            setattr(request_backup, 'method', method)
-            setattr(request_backup, 'headers', request.headers)
-            setattr(request_backup, 'args', request.args)
-            setattr(request_backup, 'data', request.data)
-
-            queue.append(request_backup)
-
             self._error_level = min(self._error_level, self._valid_error_level) + 1
             self._logger.debug(f'Error level: {self._error_level}')
             self._last_error_time = int(time())
 
-            return make_response('Internal server error', 500)
-            
-    
-    def retry_requests(self, queue):
-        for req in queue:
-            self._resend(req.url, req.path, None, req)
+            raise
 
     # Helpers
     ####################################################################################################################
@@ -177,7 +190,7 @@ if __name__ == '__main__':
     else:
         tools.set_basic_logging_config(level=logging.INFO)
 
-    circuit_breaker = Gateway(
+    gateway = Gateway(
         cmd_args.host,
         cmd_args.port,
         cmd_args.flight_service_host,
@@ -190,4 +203,4 @@ if __name__ == '__main__':
         cmd_args.wait_before_retry
     )
 
-    circuit_breaker.run(cmd_args.debug)
+    gateway.run(cmd_args.debug)
