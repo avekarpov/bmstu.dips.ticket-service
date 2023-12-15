@@ -279,12 +279,52 @@ class TicketService(ServiceBase):
 
         assert False, 'Invalid request method'
 
+    @ServiceBase.route(path='/api/v1/me', methods=['GET'])    
+    def _api_v1_me(self):
+        method = request.method
+
+        if method == 'GET':
+            username = UserValue.get_from(request.headers, 'X-User-Name').value
+
+            privilege = requests.request('GET', f'{self._bonus_service_url}/api/v1/privilege', headers={'X-User-Name': username}).json()
+            if 'error' in privilege.keys():
+                raise errors.ServerError(privilege, 500)
+
+            table = self._db_connector.get_user_tickets(username)
+            
+            ticktes = []
+            for row in table:
+                flight = requests.request('GET', f'{self._flight_service_url}/api/v1/flights/{row["flight_number"]}').json()
+                if 'error' in flight.keys():
+                    raise errors.ServerError(flight, 500)
+
+                ticktes.append(
+                    {
+                        'ticketUid': row['uid'],
+                        'fromAirport': flight['fromAirport'],
+                        'toAirport': flight['toAirport'],
+                        'date': flight['date'],
+                        'price': row['price'],
+                        'status': row['status'],
+                        'flightNumber': flight['flightNumber']
+                    }
+                )
+            message = {
+                'tickets': ticktes,
+                'privilege': privilege
+            }
+
+            return make_response(message, 200)
+
+        assert False, 'Invalid request method'
+
     # Helpers
     ####################################################################################################################
 
     def _register_routes(self):
         self._register_route('_api_v1_tickets')
         self._register_route('_api_v1_tickets_aUid')
+        self._register_route('_api_v1_me')
 
 
 if __name__ == '__main__':

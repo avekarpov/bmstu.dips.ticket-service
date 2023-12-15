@@ -79,6 +79,12 @@ class Gateway(ServiceBase):
         return self._resend(
             self._ticket_service_url, f'/api/v1/tickets/{path}', self._bonus_queue, request
         )   
+    
+    @ServiceBase.route(path='/api/v1/me', methods=['GET', 'POST', 'DELETE'])
+    def _me(self):
+        return self._resend(
+            self._ticket_service_url, f'/api/v1/me', self._bonus_queue, request
+        )
 
     ################################################################################################
 
@@ -166,6 +172,7 @@ class Gateway(ServiceBase):
         self._register_route('_privilege_aPath')
         self._register_route('_tickets')
         self._register_route('_tickets_aPath')
+        self._register_route('_me')
 
 if __name__ == '__main__':
     tools.set_basic_logging_config()
