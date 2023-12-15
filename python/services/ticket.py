@@ -140,7 +140,8 @@ class TicketService(ServiceBase):
                         'toAirport': flight['toAirport'],
                         'date': flight['date'],
                         'price': row['price'],
-                        'status': row['status']
+                        'status': row['status'],
+                        'flightNumber': flight['flightNumber']
                     }
                 )
 
@@ -209,7 +210,7 @@ class TicketService(ServiceBase):
                     'flightNumber': flight_number,
                     'fromAirport': flight['fromAirport'],
                     'toAirport': flight['toAirport'],
-                    'data': flight['date'],
+                    'date': flight['date'],
                     'price': price,
                     'paidByMoney': paid_by_money,
                     'paidByBonuses': paid_by_bonuses,
@@ -245,7 +246,8 @@ class TicketService(ServiceBase):
                     'toAirport': flight['toAirport'],
                     'date': flight['date'],
                     'price': ticket['price'],
-                    'status': ticket['status']
+                    'status': ticket['status'],
+                    'flightNumber': flight['flightNumber']
                 },
                 200
             )
