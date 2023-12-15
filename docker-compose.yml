@@ -43,6 +43,8 @@ services:
             SERVICE_HOST: flight_service
             SERVICE_PORT: 8060
             DB_HOST: postgres
+        ports:
+            - 8060:8060
         networks:
             - internal
 
@@ -59,6 +61,8 @@ services:
             BONUS_SERVICE_HOST: gateway
             BONUS_SERVICE_PORT: 8080
             DB_HOST: postgres
+        ports:
+            - 8070:8070
         networks:
             - internal
 
@@ -71,6 +75,8 @@ services:
             SERVICE_HOST: bonus_service
             SERVICE_PORT: 8050
             DB_HOST: postgres
+        ports:
+            - 8050:8050
         networks:
             - internal
 

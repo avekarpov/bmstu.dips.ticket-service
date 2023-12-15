@@ -1,0 +1,44 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - uses: docker/setup-buildx-action@v2
+      
+      - name: Build images
+        timeout-minutes: 10
+        run: docker compose build
+      
+      - name: Run containers
+        timeout-minutes: 5
+        run: |
+          docker compose up -d
+          ./wait/wait-script.sh
+        env:
+          WAIT_PORTS: 8080,8070,8060,8050
+      
+      - name: Run API Tests
+        uses: matt-ball/newman-action@master
+        with:
+          collection: postman/collection.json
+          environment: postman/environment.json
+          delayRequest: 100
+          reporters: '[ "cli" ]'
+      
+      - name: Stop containers
+        continue-on-error: true
+        run: docker compose down -v

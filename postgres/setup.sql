@@ -19,6 +19,11 @@ CREATE TABLE flight
     price           INT                      NOT NULL
 );
 
+INSERT INTO airport(name, city, country) VALUES ('Шереметьево', 'Москва', 'Россия');
+INSERT INTO airport(name, city, country) VALUES ('Пулково', 'Санкт-Петербург', 'Россия');
+INSERT INTO flight(number, datetime, from_airport_id, to_airport_id, price)
+VALUES ('AFL031', '2021-10-08 20:00', 2, 1, 1500);
+
 CREATE DATABASE tickets;
 \c tickets;
 
