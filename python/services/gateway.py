@@ -5,7 +5,7 @@ from base import ServiceBase
 
 import requests
 
-from flask import request
+from flask import request as flask_request
 from flask import make_response
 
 import tools
@@ -13,6 +13,13 @@ import tools
 import argparse
 
 from time import time
+
+class ServiceInfo:
+    def __init__(self, url):
+        self.url = url
+        self.queue = []
+        self.error_level = 0
+        self.last_error_time = 0
 
 class Gateway(ServiceBase):
     def __init__(
@@ -25,31 +32,25 @@ class Gateway(ServiceBase):
     ):
         super().__init__('Gateway', host, port)
 
-        self._flight_service_url = f'http://{flight_service_host}:{flight_service_port}'
-        self._ticket_service_url = f'http://{ticket_service_host}:{ticket_service_port}'
-        self._bonus_service_url = f'http://{bonus_service_host}:{bonus_service_port}'
+        self._flight_service_info = ServiceInfo(f'http://{flight_service_host}:{flight_service_port}')
+        self._ticket_service_info = ServiceInfo(f'http://{ticket_service_host}:{ticket_service_port}')
+        self._bonus_service_info = ServiceInfo(f'http://{bonus_service_host}:{bonus_service_port}')
 
         self._valid_error_level = valid_error_level
         self._wait_before_retry = wait_before_retry
-        self._error_level = 0
-        self._last_error_time = None
-
-        self._flight_queue = []
-        self._ticket_queue = []
-        self._bonus_queue = []
 
     ################################################################################################
 
     @ServiceBase.route(path='/api/v1/flights', methods=['GET', 'POST', 'DELETE'])
     def _flight(self):
         return self._resend(
-            self._flight_service_url, f'/api/v1/flights', self._flight_queue, request
+            self._flight_service_info, f'/api/v1/flights', flask_request
         )
 
     @ServiceBase.route(path='/api/v1/flights/<path:path>', methods=['GET', 'POST', 'DELETE'])
     def _flight_aPath(self, path):
         return self._resend(
-            self._flight_service_url, f'/api/v1/flights/{path}', self._flight_queue, request
+            self._flight_service_info, f'/api/v1/flights/{path}', flask_request
         )
     
     ################################################################################################
@@ -57,13 +58,13 @@ class Gateway(ServiceBase):
     @ServiceBase.route(path='/api/v1/privilege', methods=['GET', 'POST', 'DELETE'])
     def _privilege(self):
         return self._resend(
-            self._bonus_service_url, f'/api/v1/privilege', self._ticket_queue, request
+            self._bonus_service_info, f'/api/v1/privilege', flask_request
         )
 
     @ServiceBase.route(path='/api/v1/privilege/<path:path>', methods=['GET', 'POST', 'DELETE'])
     def _privilege_aPath(self, path):
         return self._resend(
-            self._bonus_service_url, f'/api/v1/privilege/{path}', self._ticket_queue, request
+            self._bonus_service_info, f'/api/v1/privilege/{path}', flask_request
         )   
         
     ################################################################################################
@@ -71,30 +72,36 @@ class Gateway(ServiceBase):
     @ServiceBase.route(path='/api/v1/tickets', methods=['GET', 'POST', 'DELETE'])
     def _tickets(self):
         return self._resend(
-            self._ticket_service_url, f'/api/v1/tickets', self._bonus_queue, request
+            self._ticket_service_info, f'/api/v1/tickets', flask_request
         )
 
     @ServiceBase.route(path='/api/v1/tickets/<path:path>', methods=['GET', 'POST', 'DELETE'])
     def _tickets_aPath(self, path):
         return self._resend(
-            self._ticket_service_url, f'/api/v1/tickets/{path}', self._bonus_queue, request
+            self._ticket_service_info, f'/api/v1/tickets/{path}', flask_request
         )   
     
     @ServiceBase.route(path='/api/v1/me', methods=['GET', 'POST', 'DELETE'])
     def _me(self):
         return self._resend(
-            self._ticket_service_url, f'/api/v1/me', self._bonus_queue, request
+            self._ticket_service_info, f'/api/v1/me', flask_request
         )
 
     ################################################################################################
 
-    def _resend(self, url, path, queue, request):
-        response = None
-
+    def _resend(self, service_info, path, request):
         try:
-            response = self._request(url, path, request)
+            if len(service_info.queue) != 0:
+                if not self._check_service_health(service_info):
+                    raise RuntimeError('Service is unavailable')
 
-        except Exception as exception:
+                for request_backup in service_info.queue:
+                    self._request(service_info, request_backup.path, request_backup)
+                    service_info.queue.remove(request_backup)
+
+            return self._request(service_info, path, request)
+        
+        except Exception:
             if request.method == 'DELETE':
                 class RequestBackup:
                     def __init__(self, path, method, headers, args, data):
@@ -103,50 +110,32 @@ class Gateway(ServiceBase):
                         self.headers = headers
                         self.args = args
                         self.data = data
-            
-                queue.append(RequestBackup(path, request.method, request.headers, request.args, request.data))
+
+                service_info.queue.append(RequestBackup(path, request.method, request.headers, request.args, request.data))
 
                 return make_response('', 200)
-
-            return make_response('Internal server error', 500)
-
-        try:
-            for req in queue:
-                self._request(url, req.path, req)
-                queue.remove(req)
-
-        finally:
-            return response
+            
+        return make_response('Internal server error', 500)
         
 
-    def _request(self, url, path, request):
+    def _request(self, service_info, path, request):
         method = request.method
-
-        if self._error_level > self._valid_error_level:
-            if self._last_error_time + self._wait_before_retry > int(time()):
-                self._logger.error(
-                    f'Failed to resend, '
-                    f'error level {self._error_level} > {self._valid_error_level} '
-                    f'for {self._wait_before_retry}s from last {self._last_error_time}'
-                )
-
-                return make_response('Internal server error', 500)
 
         try:
             self._logger.debug('Send request')
             response = requests.request(
                 method,
-                f'{url}/{path}',
+                f'{service_info.url}{path}',
                 headers=request.headers,
                 params=request.args,
                 data=request.data
             )
 
-            if 500 <= response.status_code <= 599:
-                raise RuntimeError('Get 500 code from service')
+            # if 500 <= response.status_code <= 599:
+            #     raise RuntimeError('Get 500 code from service')
 
-            self._logger.debug(f'Get response from service, reset error level from {self._error_level} to 0')
-            self._error_level = 0
+            self._logger.debug(f'Got response from service, reset error level from {service_info.error_level} to 0')
+            service_info.error_level = 0
 
             if tools.is_json_content(response):
                 return make_response(response.json(), response.status_code)
@@ -154,13 +143,32 @@ class Gateway(ServiceBase):
             return make_response(response.text, response.status_code)
 
         except Exception as exception:
-            self._logger.error(f'Failed to resend, error: {exception}')
+            self._logger.error(f'Failed to send request, error: {exception}')
 
-            self._error_level = min(self._error_level, self._valid_error_level) + 1
-            self._logger.debug(f'Error level: {self._error_level}')
+            service_info.error_level = min(service_info.error_level, self._valid_error_level) + 1
+            self._logger.debug(f'Error level: {service_info.error_level}')
             self._last_error_time = int(time())
 
             raise
+
+    def _check_service_health(self, service_info: ServiceInfo):
+        if service_info.error_level > self._valid_error_level:
+            if service_info.last_error_time + self._wait_before_retry > int(time()):
+                self._logger.error(
+                    f'Failed to send request to {service_info.url}, '
+                    f'error level {service_info.error_level} > {self._valid_error_level} '
+                    f'for {self._wait_before_retry}s from last {service_info.last_error_time}'
+                )
+            
+                return False
+         
+        try:
+            requests.request('GET', f'{service_info.url}/manage/health')
+
+        except:
+            return False
+        
+        return True
 
     # Helpers
     ####################################################################################################################

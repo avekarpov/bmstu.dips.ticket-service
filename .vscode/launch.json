@@ -29,6 +29,8 @@
             "console": "integratedTerminal",
             "args":
             [
+                "--flight-service-port", "8080",
+                "--bonus-service-port", "8080",
                 "--db-user", "program",
                 "--db-password", "program_password",
                 "--db", "tickets",
