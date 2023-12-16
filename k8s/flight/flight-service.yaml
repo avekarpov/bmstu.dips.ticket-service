@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    kompose.cmd: kompose convert
+    kompose.version: 1.26.0 (40646f47)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: flight
+  name: flight
+spec:
+  ports:
+    - name: "8060"
+      port: 8060
+      targetPort: 8060
+  selector:
+    io.kompose.service: flight
+status:
+  loadBalancer: {}

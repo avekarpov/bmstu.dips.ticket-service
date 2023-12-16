@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert
+    kompose.version: 1.26.0 (40646f47)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: flight
+  name: flight
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: flight
+  strategy: {}
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert
+        kompose.version: 1.26.0 (40646f47)
+      creationTimestamp: null
+      labels:
+        io.kompose.network/internal: "true"
+        io.kompose.service: flight
+    spec:
+      containers:
+        - env:
+            - name: DB_HOST
+              value: postgres
+            - name: SERVICE_HOST
+              value: 0.0.0.0
+            - name: SERVICE_PORT
+              value: "8060"
+          image: avekarpov/ticketservice-flight
+          imagePullPolicy: "Always"
+          name: flight-service
+          ports:
+            - containerPort: 8060
+          resources: {}
+      restartPolicy: Always
+status: {}
