@@ -8,6 +8,7 @@ import psycopg2
 import errors
 
 from datetime import datetime
+import time
 
 class DbConnectorBase:
     def __init__(self, name, host, port, database, user, password, sslmode):
@@ -15,21 +16,28 @@ class DbConnectorBase:
 
         self._connection = self.create_connection(host, port, database, user, password, sslmode)
 
-    def create_connection(self, host, port, database, user, password, sslmode):
+    def create_connection(self, host, port, database, user, password, sslmode, retry_number=10, reconnecting_delay_s=1):
         self._logger.info(
             f'Create connection on \'http://{host}:{port}\' to database \'{database}\' under user \'{user}\''
         )
 
-        return psycopg2.connect(
-            host=host,
-            port=port,
-            database=database,
-            user=user,
-            password=password,
-            sslmode=sslmode
-        )
-
-
+        for i in range(retry_number):
+            try:
+                return psycopg2.connect(
+                    host=host,
+                    port=port,
+                    database=database,
+                    user=user,
+                    password=password,
+                    sslmode=sslmode
+                )
+            except Exception as exception:
+                error = exception.args[0].replace('\n', ' ').strip()
+                if error.find('Connection refused'):
+                    logging.debug(f'Got error {error}, reconnecting in {reconnecting_delay_s} seconds')
+                    time.sleep(reconnecting_delay_s)
+        
+        raise RuntimeError('Connection to database failed')
 class ServiceBase:
     def __init__(self, name, host, port, db_connector:DbConnectorBase=None):
         self._service_name = name
