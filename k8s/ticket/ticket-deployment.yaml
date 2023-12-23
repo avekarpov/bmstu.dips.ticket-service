@@ -1,28 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    kompose.cmd: kompose convert
-    kompose.version: 1.26.0 (40646f47)
-  creationTimestamp: null
   labels:
-    io.kompose.service: ticket
+    service: ticket
   name: ticket
 spec:
   replicas: 1
   selector:
     matchLabels:
-      io.kompose.service: ticket
-  strategy: {}
+      service: ticket
   template:
     metadata:
-      annotations:
-        kompose.cmd: kompose convert
-        kompose.version: 1.26.0 (40646f47)
-      creationTimestamp: null
       labels:
-        io.kompose.network/internal: "true"
-        io.kompose.service: ticket
+        service: ticket
     spec:
       containers:
         - env:
@@ -41,10 +31,8 @@ spec:
             - name: SERVICE_PORT
               value: "8070"
           image: avekarpov/ticketservice-ticket
-          imagePullPolicy: "Always"
+          imagePullPolicy: Always
           name: ticket-serivce
           ports:
             - containerPort: 8070
-          resources: {}
       restartPolicy: Always
-status: {}

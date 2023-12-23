@@ -1,28 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    kompose.cmd: kompose convert
-    kompose.version: 1.26.0 (40646f47)
-  creationTimestamp: null
   labels:
-    io.kompose.service: gateway
+    service: gateway
   name: gateway
 spec:
   replicas: 1
   selector:
     matchLabels:
-      io.kompose.service: gateway
-  strategy: {}
+      service: gateway
   template:
     metadata:
-      annotations:
-        kompose.cmd: kompose convert
-        kompose.version: 1.26.0 (40646f47)
-      creationTimestamp: null
       labels:
-        io.kompose.network/internal: "true"
-        io.kompose.service: gateway
+        service: gateway
     spec:
       containers:
         - env:
@@ -43,10 +33,8 @@ spec:
             - name: TICKET_SERVICE_PORT
               value: "8070"
           image: avekarpov/ticketservice-gateway
-          imagePullPolicy: "Always"
+          imagePullPolicy: Always
           name: gateway
           ports:
             - containerPort: 8080
-          resources: {}
       restartPolicy: Always
-status: {}
