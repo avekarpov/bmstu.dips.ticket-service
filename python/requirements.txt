@@ -2,3 +2,4 @@ flask
 argparse
 psycopg2-binary
 requests
+python-jose 

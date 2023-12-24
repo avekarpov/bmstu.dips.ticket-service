@@ -1,8 +1,6 @@
 import logging
 
-import psycopg2
-
-from base import ServiceBase
+from base import ServerBaseWithAuth0
 from base import DbConnectorBase
 
 from flask import request
@@ -99,7 +97,7 @@ class TicketDbConnector(DbConnectorBase):
         self._connection.commit()
 
 
-class TicketService(ServiceBase):
+class TicketService(ServerBaseWithAuth0):
     def __init__(
         self, 
         host, 
@@ -108,9 +106,20 @@ class TicketService(ServiceBase):
         flight_service_host, 
         flight_service_port,
         bonus_service_host,
-        bonus_service_port    
+        bonus_service_port,
+        authorize_service_api_key,
+        authorize_service_secret_key,
+        authorize_service_url
     ):
-        super().__init__('TicketService', host, port, db_connector)
+        super().__init__(
+            authorize_service_api_key, 
+            authorize_service_secret_key, 
+            authorize_service_url, 
+            'TicketService', 
+            host, 
+            port, 
+            db_connector
+        )
 
         self._flight_service_url = f'http://{flight_service_host}:{flight_service_port}'
         self._bonus_service_url = f'http://{bonus_service_host}:{bonus_service_port}'
@@ -118,18 +127,19 @@ class TicketService(ServiceBase):
     # API requests handlers
     ####################################################################################################################
 
-    @ServiceBase.route(path='/api/v1/tickets', methods=['GET', 'POST'])
+    @ServerBaseWithAuth0.route(path='/api/v1/tickets', methods=['GET', 'POST'])
     def _api_v1_tickets(self):
         method = request.method
 
         if method == 'GET':
-            username = UserValue.get_from(request.headers, 'X-User-Name').value
+            token = self._get_user_token(request)
+            username = self._get_username(token)
 
             table = self._db_connector.get_user_tickets(username)
             
             meesage = []
             for row in table:
-                flight = requests.request('GET', f'{self._flight_service_url}/api/v1/flights/{row["flight_number"]}').json()
+                flight = requests.request('GET', f'{self._flight_service_url}/api/v1/flights/{row["flight_number"]}', headers={'Authorization': f'Bearer {token}'}).json()
                 if 'error' in flight.keys():
                     raise errors.ServerError(flight, 500)
 
@@ -148,7 +158,8 @@ class TicketService(ServiceBase):
             return make_response(meesage, 200)
 
         if method == 'POST':
-            username = UserValue.get_from(request.headers, 'X-User-Name').value
+            token = self._get_user_token(request)
+            username = self._get_username(token)
 
             UserValue.get_from(request.headers, 'Content-Type').rule(rules.json_content)
             body = request.json
@@ -158,13 +169,13 @@ class TicketService(ServiceBase):
                 price = UserValue.get_from(body, 'price', error_chain).expected(int).rule(rules.grater_zero).value
                 paid_from_balance = UserValue.get_from(body, 'paidFromBalance', error_chain).expected(bool).value
 
-            flight = requests.request('GET', f'{self._flight_service_url}/api/v1/flights/{flight_number}').json()
+            flight = requests.request('GET', f'{self._flight_service_url}/api/v1/flights/{flight_number}', headers={'Authorization': f'Bearer {token}'}).json()
             if 'error' in flight.keys():
                 raise errors.ServerError(flight, 500)
 
             price = ServerValue.get_from(flight, 'price').expected(int).rule(rules.grater_zero).value
 
-            privilege = requests.request('GET', f'{self._bonus_service_url}/api/v1/privilege', headers={'X-User-Name': username}).json()
+            privilege = requests.request('GET', f'{self._bonus_service_url}/api/v1/privilege', headers={'Authorization': f'Bearer {token}'}).json()
             if 'error' in privilege.keys():
                 raise errors.ServerError(privilege, 500)
 
@@ -189,11 +200,11 @@ class TicketService(ServiceBase):
                 f'{self._bonus_service_url}/api/v1/privilege/{uid}',
                 headers={
                     'Content-Type': 'application/json',
-                    'X-User-Name': username
+                    'Authorization': f'Bearer {token}'
                 },
                 data=json.dumps({
                     'paidFromBalance': paid_from_balance,
-                    'datetime': ServiceBase.get_current_datetime(),
+                    'datetime': ServerBaseWithAuth0.get_current_datetime(),
                     'ticketUid': uid,
                     'balanceDiff': balance_diff
                 })
@@ -225,11 +236,13 @@ class TicketService(ServiceBase):
 
         assert False, 'Invalid request method'
 
-    @ServiceBase.route(path='/api/v1/tickets/<string:uid>', methods=['GET', 'DELETE'])
+    @ServerBaseWithAuth0.route(path='/api/v1/tickets/<string:uid>', methods=['GET', 'DELETE'])
     def _api_v1_tickets_aUid(self, uid):
         method = request.method
 
         if method == 'GET':
+            token = self._get_user_token(request)
+
             ticket = self._db_connector.get_ticket_by_uid(uid)
 
             if ticket is None:
@@ -237,7 +250,7 @@ class TicketService(ServiceBase):
 
             url_base = f'{self._flight_service_url}/api/v1/flights'
 
-            flight = requests.request('GET', f'{url_base}/{ticket["flight_number"]}').json()
+            flight = requests.request('GET', f'{url_base}/{ticket["flight_number"]}', headers={'Authorization': f'Bearer {token}'}).json()
 
             return make_response(
                 {
@@ -253,7 +266,8 @@ class TicketService(ServiceBase):
             )
 
         if method == 'DELETE':
-            username = UserValue.get_from(request.headers, 'X-User-Name').value
+            token = self._get_user_token(request)
+            username = self._get_username(token)
 
             ticket = self._db_connector.get_ticket_by_uid(uid)
 
@@ -265,7 +279,7 @@ class TicketService(ServiceBase):
                 f'{self._bonus_service_url}/api/v1/privilege/{uid}',
                 headers={
                     'Content-Type': 'application/json',
-                    'X-User-Name': username
+                    'Authorization': f'Bearer {token}'
                 }
             )
 
@@ -279,14 +293,15 @@ class TicketService(ServiceBase):
 
         assert False, 'Invalid request method'
 
-    @ServiceBase.route(path='/api/v1/me', methods=['GET'])    
+    @ServerBaseWithAuth0.route(path='/api/v1/me', methods=['GET'])    
     def _api_v1_me(self):
         method = request.method
 
         if method == 'GET':
-            username = UserValue.get_from(request.headers, 'X-User-Name').value
+            token = self._get_user_token(request)
+            username = self._get_username(token)
 
-            privilege = requests.request('GET', f'{self._bonus_service_url}/api/v1/privilege', headers={'X-User-Name': username}).json()
+            privilege = requests.request('GET', f'{self._bonus_service_url}/api/v1/privilege', headers={'Authorization': f'Bearer {token}'}).json()
             if 'error' in privilege.keys():
                 raise errors.ServerError(privilege, 500)
 
@@ -294,7 +309,7 @@ class TicketService(ServiceBase):
             
             ticktes = []
             for row in table:
-                flight = requests.request('GET', f'{self._flight_service_url}/api/v1/flights/{row["flight_number"]}').json()
+                flight = requests.request('GET', f'{self._flight_service_url}/api/v1/flights/{row["flight_number"]}', headers={'Authorization': f'Bearer {token}'}).json()
                 if 'error' in flight.keys():
                     raise errors.ServerError(flight, 500)
 
@@ -366,7 +381,10 @@ if __name__ == '__main__':
         cmd_args.flight_service_host,
         cmd_args.flight_service_port,
         cmd_args.bonus_service_host,
-        cmd_args.bonus_service_port
+        cmd_args.bonus_service_port,
+        'cRvxa4PfI6aJTiuOgJoY44qjsj9JFjxx',
+        '4yejzOesJYPF-K9P-TIh93w5V4ki0quOIIRuc2MI9WgdUDNCGPj_r6YciYKwjVgg',
+        'dev-r6rulu3m7tph7f63.us.auth0.com'
     )
 
     service.run(cmd_args.debug)

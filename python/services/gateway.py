@@ -1,7 +1,6 @@
-import json
 import logging
 
-from base import ServiceBase
+from base import ServerBaseWithAuth0
 
 import requests
 
@@ -14,6 +13,9 @@ import argparse
 
 from time import time
 
+from getters import UserValue
+import rules
+
 class ServiceInfo:
     def __init__(self, url):
         self.url = url
@@ -21,16 +23,27 @@ class ServiceInfo:
         self.error_level = 0
         self.last_error_time = 0
 
-class Gateway(ServiceBase):
+ALL_METHODS = ['GET', 'POST', 'DELETE']
+
+
+class Gateway(ServerBaseWithAuth0):
     def __init__(
         self, 
         host, port, 
         flight_service_host, flight_service_port,
         ticket_service_host, ticket_service_port,
         bonus_service_host, bonus_service_port,
-        valid_error_level, wait_before_retry
+        valid_error_level, wait_before_retry,
+        authorize_service_api_key, authorize_service_secret_key, authorize_service_url
     ):
-        super().__init__('Gateway', host, port)
+        super().__init__(
+            authorize_service_api_key, 
+            authorize_service_secret_key, 
+            authorize_service_url, 
+            'Gateway', 
+            host,
+            port
+        )
 
         self._flight_service_info = ServiceInfo(f'http://{flight_service_host}:{flight_service_port}')
         self._ticket_service_info = ServiceInfo(f'http://{ticket_service_host}:{ticket_service_port}')
@@ -41,13 +54,13 @@ class Gateway(ServiceBase):
 
     ################################################################################################
 
-    @ServiceBase.route(path='/api/v1/flights', methods=['GET', 'POST', 'DELETE'])
+    @ServerBaseWithAuth0.route(path='/api/v1/flights', methods=ALL_METHODS)
     def _flight(self):
         return self._resend(
             self._flight_service_info, f'/api/v1/flights', flask_request
         )
 
-    @ServiceBase.route(path='/api/v1/flights/<path:path>', methods=['GET', 'POST', 'DELETE'])
+    @ServerBaseWithAuth0.route(path='/api/v1/flights/<path:path>', methods=ALL_METHODS)
     def _flight_aPath(self, path):
         return self._resend(
             self._flight_service_info, f'/api/v1/flights/{path}', flask_request
@@ -55,13 +68,13 @@ class Gateway(ServiceBase):
     
     ################################################################################################
     
-    @ServiceBase.route(path='/api/v1/privilege', methods=['GET', 'POST', 'DELETE'])
+    @ServerBaseWithAuth0.route(path='/api/v1/privilege', methods=ALL_METHODS)
     def _privilege(self):
         return self._resend(
             self._bonus_service_info, f'/api/v1/privilege', flask_request
         )
 
-    @ServiceBase.route(path='/api/v1/privilege/<path:path>', methods=['GET', 'POST', 'DELETE'])
+    @ServerBaseWithAuth0.route(path='/api/v1/privilege/<path:path>', methods=ALL_METHODS)
     def _privilege_aPath(self, path):
         return self._resend(
             self._bonus_service_info, f'/api/v1/privilege/{path}', flask_request
@@ -69,19 +82,19 @@ class Gateway(ServiceBase):
         
     ################################################################################################
 
-    @ServiceBase.route(path='/api/v1/tickets', methods=['GET', 'POST', 'DELETE'])
+    @ServerBaseWithAuth0.route(path='/api/v1/tickets', methods=ALL_METHODS)
     def _tickets(self):
         return self._resend(
             self._ticket_service_info, f'/api/v1/tickets', flask_request
         )
 
-    @ServiceBase.route(path='/api/v1/tickets/<path:path>', methods=['GET', 'POST', 'DELETE'])
+    @ServerBaseWithAuth0.route(path='/api/v1/tickets/<path:path>', methods=ALL_METHODS)
     def _tickets_aPath(self, path):
         return self._resend(
             self._ticket_service_info, f'/api/v1/tickets/{path}', flask_request
         )   
     
-    @ServiceBase.route(path='/api/v1/me', methods=['GET', 'POST', 'DELETE'])
+    @ServerBaseWithAuth0.route(path='/api/v1/me', methods=ALL_METHODS)
     def _me(self):
         return self._resend(
             self._ticket_service_info, f'/api/v1/me', flask_request
@@ -89,7 +102,44 @@ class Gateway(ServiceBase):
 
     ################################################################################################
 
+    @ServerBaseWithAuth0.route(path='/api/v1/authorize', methods=['POST'])
+    def _authorize(self):
+        request = flask_request
+
+        UserValue.get_from(request.headers, 'Content-Type').rule(rules.json_content)
+        username = UserValue.get_from(request.json, 'username').expected(str).value
+        password = UserValue.get_from(request.json, 'password').expected(str).value
+
+        response = requests.request(
+            'POST',
+            f'{self._authorize_service_info.url}/oauth/token',
+            headers={'Content-Type': 'application/x-www-form-urlencoded'},
+            data={
+                'client_id': self._authorize_service_info.api_key,
+                'client_secret': self._authorize_service_info.secret_key,
+                'grant_type': 'password',
+                'username': username,
+                'password': password,
+                'audience': f'{self._authorize_service_info.url}/api/v2/',
+                'scope': 'openid'
+            }
+        )
+    
+        if tools.is_json_content(response):
+            self._validate_token(response.json()['access_token'])
+            return make_response(response.json(), response.status_code)
+
+        return make_response(response.text, response.status_code)
+
+    @ServerBaseWithAuth0.route(path='/api/v1/callback', methods=ALL_METHODS)
+    def _callback(self):
+        return make_response('', 200)
+
+    ################################################################################################
+
     def _resend(self, service_info, path, request):
+        self._get_user_token(request)
+
         try:
             if len(service_info.queue) != 0:
                 if not self._check_service_health(service_info):
@@ -181,6 +231,8 @@ class Gateway(ServiceBase):
         self._register_route('_tickets')
         self._register_route('_tickets_aPath')
         self._register_route('_me')
+        self._register_route('_authorize')
+        self._register_route('_callback')
 
 if __name__ == '__main__':
     tools.set_basic_logging_config()
@@ -215,7 +267,11 @@ if __name__ == '__main__':
         cmd_args.bonus_service_host,
         cmd_args.bonus_service_port,
         cmd_args.valid_error_level,
-        cmd_args.wait_before_retry
+        cmd_args.wait_before_retry,
+        'cRvxa4PfI6aJTiuOgJoY44qjsj9JFjxx',
+        '4yejzOesJYPF-K9P-TIh93w5V4ki0quOIIRuc2MI9WgdUDNCGPj_r6YciYKwjVgg',
+        'dev-r6rulu3m7tph7f63.us.auth0.com'
+        
     )
 
     gateway.run(cmd_args.debug)

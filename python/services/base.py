@@ -1,14 +1,20 @@
 from flask import Flask
 from flask import make_response
 
+import requests
+
 import logging
 
 import psycopg2
 
-import errors
+from errors import UserError
+from getters import ServerValue, UserValue
+import rules
 
 from datetime import datetime
 import time
+
+from jose import jwt
 
 class DbConnectorBase:
     def __init__(self, name, host, port, database, user, password, sslmode):
@@ -117,7 +123,7 @@ class ServiceBase:
                 try:
                     return func(self=self, *args, **kwargs)
                 
-                except errors.UserError as error:
+                except UserError as error:
                     error.message.update({'error': 'bad request'})
                     return make_response(error.message, error.code)
 
@@ -128,3 +134,100 @@ class ServiceBase:
             return wrapper
 
         return decorate
+
+
+class AuthorizeServiceInfo:
+    def __init__(self, api_key, secret_key, url):
+        self.api_key = api_key
+        self.secret_key = secret_key
+        self.url = f'https://{url}'
+
+
+class ServerBaseWithAuth0(ServiceBase):
+    def __init__(
+        self,
+        authorize_service_api_key, 
+        authorize_service_secret_key, 
+        authorize_service_url,
+        *args,
+        **kwargs
+    ):
+        super().__init__(*args, **kwargs)
+
+        self._authorize_service_info = AuthorizeServiceInfo(
+            authorize_service_api_key, 
+            authorize_service_secret_key, 
+            authorize_service_url
+        )
+    
+    def _get_user_token(self, request):
+        token = UserValue.get_from(request.headers, 'Authorization', code=401).value
+        token = token.split()
+
+        if len(token) > 1:
+            token = token[1]
+        else:
+            token = token[0]
+
+        self._validate_token(token)
+
+        return token
+
+    def _get_username(self, token):
+        response = requests.request(
+            'GET',
+            f'{self._authorize_service_info.url}/userinfo',
+            headers={
+                'Authorization': f'Bearer {token}'
+            }
+        )
+
+        # ServerValue.get_from(response.headers, 'Content-Type').rule(rules.json_content)
+        return ServerValue.get_from(response.json(), 'nickname').value
+
+    def _validate_token(self, token):
+        rsa_key = None
+
+        try:
+            jwks = requests.request('GET', f'{self._authorize_service_info.url}/.well-known/jwks.json').json()
+            unverified_header = jwt.get_unverified_header(token)
+
+            for key in jwks['keys']:
+                if key['kid'] == unverified_header['kid']:
+                    rsa_key = {
+                        "kty": key["kty"],
+                        "kid": key["kid"],
+                        "use": key["use"],
+                        "n": key["n"],
+                        "e": key["e"]
+                    }
+
+                    break
+
+        except Exception as error:
+            raise UserError(
+                    {'message': f'invalid header, {error}'}, 401
+                )
+
+        if rsa_key is not None:
+            try:
+                return jwt.decode(
+                    token,
+                    rsa_key,
+                    algorithms=['RS256'],
+                    audience=f'{self._authorize_service_info.url}/api/v2/',
+                    issuer=f'{self._authorize_service_info.url}/'
+                )
+
+            except jwt.ExpiredSignatureError:
+                raise UserError(
+                    {'message': 'token expired'}, 401
+                )
+            except Exception as error:
+                raise UserError(
+                    {'message': f'invalid header, {error}'}, 401
+                )
+        
+        raise UserError(
+            {'message': 'invalid header'}, 401
+        )

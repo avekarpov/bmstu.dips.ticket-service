@@ -1,7 +1,7 @@
 import logging
 from operator import le
 
-from base import ServiceBase
+from base import ServerBaseWithAuth0
 from base import DbConnectorBase
 
 import tools
@@ -14,7 +14,6 @@ from flask import make_response
 import argparse
 
 from getters import UserValue
-from getters import ServerValue
 
 class BonusDbConnector(DbConnectorBase):
     def __init__(self, host, port, database, user, password, sslmode='disable'):
@@ -139,19 +138,33 @@ class BonusDbConnector(DbConnectorBase):
             for row in table
         ]
 
-class BonusService(ServiceBase):
-    def __init__(self, host, port, db_connector):
-        super().__init__('BounsService', host, port, db_connector)
+class BonusService(ServerBaseWithAuth0):
+    def __init__(
+            self, 
+            host, 
+            port, 
+            db_connector,
+            authorize_service_api_key, authorize_service_secret_key, authorize_service_url
+        ):
+        super().__init__(
+            authorize_service_api_key, 
+            authorize_service_secret_key, 
+            authorize_service_url, 
+            'BounsService', 
+            host, 
+            port, 
+            db_connector
+        )
 
     # API requests handlers
     ####################################################################################################################
 
-    @ServiceBase.route(path='/api/v1/privilege', methods=['GET'])
+    @ServerBaseWithAuth0.route(path='/api/v1/privilege', methods=['GET'])
     def _api_v1_privilege(self):
         method = request.method
 
         if method == 'GET':
-            username = UserValue.get_from(request.headers, 'X-User-Name').value
+            username = self._get_username(self._get_user_token(request))
 
             user_privilege = self._db_connector.get_user_privilege(username)
 
@@ -180,12 +193,12 @@ class BonusService(ServiceBase):
 
         assert False, 'Invalid request method'
 
-    @ServiceBase.route(path='/api/v1/privilege/<string:ticket_uid>', methods=['POST', 'DELETE'])
+    @ServerBaseWithAuth0.route(path='/api/v1/privilege/<string:ticket_uid>', methods=['POST', 'DELETE'])
     def _api_v1_privilege_aUid(self, ticket_uid):
         method = request.method
 
         if method == 'POST':
-            username = UserValue.get_from(request.headers, 'X-User-Name').value
+            username = self._get_username(self._get_user_token(request))
 
             user_privilege = self._db_connector.get_user_privilege(username)
 
@@ -217,7 +230,7 @@ class BonusService(ServiceBase):
             )
         
         if method == 'DELETE':
-            username = UserValue.get_from(request.headers, 'X-User-Name').value
+            username = self._get_username(self._get_user_token(request))
 
             user_privilege = self._db_connector.get_user_privilege(username)
 
@@ -232,7 +245,7 @@ class BonusService(ServiceBase):
             assert len(privilege_history) == 1
             privilege_history = privilege_history[0]
 
-            datetime = ServiceBase.get_current_datetime()
+            datetime = ServerBaseWithAuth0.get_current_datetime()
 
             if privilege_history['operation_type'] == 'FILL_IN_BALANCE':
                 balance_diff = min(user_privilege['balance'], privilege_history['balance_diff'])
@@ -284,7 +297,10 @@ if __name__ == '__main__':
             cmd_args.db_user,
             cmd_args.db_password,
             cmd_args.db_sslmode
-        )
+        ),
+        'cRvxa4PfI6aJTiuOgJoY44qjsj9JFjxx',
+        '4yejzOesJYPF-K9P-TIh93w5V4ki0quOIIRuc2MI9WgdUDNCGPj_r6YciYKwjVgg',
+        'dev-r6rulu3m7tph7f63.us.auth0.com'
     )
 
     service.run(cmd_args.debug)
